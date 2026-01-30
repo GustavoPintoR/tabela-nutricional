@@ -11,10 +11,49 @@ const VD = {
   sodio: 2000
 }
 
+function normalize(value) {
+  if (value === 'NA' || value === 'Tr' || value === '' || value === null) {
+    return 0
+  }
+  return Number(value)
+}
+
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+}
+
 fetch('data/taco.json')
   .then(res => res.json())
   .then(data => {
-    taco = { ...data, ...JSON.parse(localStorage.getItem('customFoods') || '{}') }
+    taco = {}
+
+    data.forEach(item => {
+      const key = slugify(item.description)
+
+      taco[key] = {
+        name: item.description,
+
+        // BASE PARA O RÓTULO (100g)
+        energia: normalize(item.energy_kcal),
+        carbo: normalize(item.carbohydrate_g),
+        proteina: normalize(item.protein_g),
+        gordura: normalize(item.lipid_g),
+        fibra: normalize(item.fiber_g),
+        sodio: normalize(item.sodium_mg),
+
+        // opcionais (para futuro)
+        saturada: normalize(item.saturated_g),
+        colesterol: normalize(item.cholesterol_mg)
+      }
+    })
+
+    // junta ingredientes customizados
+    const custom = JSON.parse(localStorage.getItem('customFoods') || '{}')
+    taco = { ...taco, ...custom }
+
     populateIngredients()
     renderRecipes()
   })
@@ -87,9 +126,15 @@ function generateLabel() {
     <p style="font-size:10px">*Valores diários com base em 2.000 kcal</p>
   `
 
-  recipes.unshift({ name: recipeName.value })
-  localStorage.setItem('recipes', JSON.stringify(recipes))
-  renderRecipes()
+  const savedRecipe = {
+    name: recipeName.value,
+    portionSize: portion,
+    ingredients: [...recipeIngredients]
+    }
+
+    recipes.unshift(savedRecipe)
+    localStorage.setItem('recipes', JSON.stringify(recipes))
+    renderRecipes()
 }
 
 function row(label, value, unit, vd) {
@@ -102,9 +147,14 @@ function row(label, value, unit, vd) {
 
 function renderRecipes() {
   recipeList.innerHTML = ''
-  recipes.slice(0,5).forEach(r => {
+
+  recipes.slice(0, 5).forEach((r, index) => {
     const li = document.createElement('li')
     li.textContent = r.name
+    li.style.cursor = 'pointer'
+
+    li.onclick = () => loadRecipe(index)
+
     recipeList.appendChild(li)
   })
 }
@@ -127,4 +177,35 @@ function addCustomFood() {
   localStorage.setItem('customFoods', JSON.stringify(customFoods))
   taco[key] = customFoods[key]
   populateIngredients()
+}
+
+function restartRecipe() {
+  if (!confirm('Deseja reiniciar a receita atual?')) return
+
+  recipeIngredients = []
+
+  recipeName.value = ''
+  portionSize.value = ''
+  ingredientQty.value = ''
+
+  currentIngredients.innerHTML = ''
+  nutritionLabel.innerHTML = ''
+}
+
+function loadRecipe(index) {
+  const recipe = recipes[index]
+
+  // limpa estado atual
+  restartRecipe()
+
+  // restaura dados
+  recipeName.value = recipe.name
+  portionSize.value = recipe.portionSize
+  recipeIngredients = [...recipe.ingredients]
+
+  // atualiza UI
+  renderCurrentIngredients()
+
+  // gera novamente a tabela
+  generateLabel()
 }
