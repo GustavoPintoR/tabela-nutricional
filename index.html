@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Gerador de Tabela Nutricional</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <h1>Gerador de Rótulo Nutricional</h1>
+</header>
+
+<main class="layout">
+
+  <!-- LEFT -->
+  <section class="panel">
+    <h3>Receitas recentes</h3>
+    <ul id="recipeList"></ul>
+  </section>
+
+  <!-- CENTER -->
+  <section class="panel">
+    <h3>Nova Receita</h3>
+
+    <input id="recipeName" placeholder="Nome da receita">
+
+    <label>Porção (g)</label>
+    <input id="portionSize" type="number" placeholder="Ex: 50">
+
+    <label>Ingrediente</label>
+    <select id="ingredientSelect"></select>
+
+    <label>Quantidade (g)</label>
+    <input id="ingredientQty" type="number">
+
+    <button onclick="addIngredient()">Adicionar ingrediente</button>
+
+    <ul id="currentIngredients"></ul>
+
+    <button class="primary" onclick="generateLabel()">
+      Gerar Tabela Nutricional
+    </button>
+  </section>
+
+  <!-- RIGHT -->
+  <section class="panel">
+    <h3>Adicionar ingrediente (TACO)</h3>
+    <input id="newName" placeholder="Nome">
+    <input id="newEnergy" placeholder="Energia kcal /100g">
+    <input id="newCarb" placeholder="Carboidratos g">
+    <input id="newProtein" placeholder="Proteínas g">
+    <input id="newFat" placeholder="Gorduras g">
+    <input id="newFiber" placeholder="Fibra g">
+    <input id="newSodium" placeholder="Sódio mg">
+    <button onclick="addCustomFood()">Adicionar</button>
+  </section>
+
+</main>
+
+<section id="labelSection">
+  <div id="print-area">
+
+    <img src="images/logo.png" id="logo" draggable="true">
+
+    <div id="nutritionLabel" draggable="true"></div>
+
+  </div>
+
+  <button onclick="window.print()">Imprimir / Salvar PDF</button>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
