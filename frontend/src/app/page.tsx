@@ -23,7 +23,12 @@ type Recipe = {
   id: number;
   name: string;
   portion_size: number;
-  ingredients: RecipeIngredient[];
+  ingredients: Array<RecipeIngredient & { pivot?: { qty: number } }>;
+};
+
+type User = {
+  name: string;
+  email: string;
 };
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
@@ -53,6 +58,13 @@ export default function Home() {
   const [portionSize, setPortionSize] = useState(50);
   const [labelVisible, setLabelVisible] = useState(false);
   const [customIngredient, setCustomIngredient] = useState(initialCustomIngredient);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
+  const [editingRecipeId, setEditingRecipeId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch(`${apiBase}/ingredients`)
@@ -64,7 +76,41 @@ export default function Home() {
       .then((res) => res.json())
       .then(setRecipes)
       .catch(console.error);
+
+    const token = localStorage.getItem("authToken");
+    if (token) {
+      setAuthToken(token);
+      fetchUser(token);
+    }
   }, []);
+
+  const fetchUser = (token: string) => {
+    fetch(`${apiBase}/user`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("Unauthorized");
+        }
+        return res.json();
+      })
+      .then(setUser)
+      .catch(() => {
+        setAuthToken(null);
+        localStorage.removeItem("authToken");
+      });
+  };
+
+  const authFetch = (url: string, init: RequestInit = {}) => {
+    const headers = {
+      ...(init.headers || {}),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    };
+
+    return fetch(url, { ...init, headers });
+  };
 
   const totals = useMemo(() => {
     const totals = { energia: 0, carbo: 0, proteina: 0, gordura: 0, fibra: 0, sodio: 0 };
@@ -86,6 +132,14 @@ export default function Home() {
 
     return { totals, totalWeight };
   }, [recipeIngredients, ingredients]);
+
+  const clearRecipeForm = () => {
+    setRecipeName("");
+    setPortionSize(50);
+    setRecipeIngredients([]);
+    setEditingRecipeId(null);
+    setLabelVisible(false);
+  };
 
   const addIngredient = () => {
     if (!selectedIngredient) {
@@ -112,7 +166,12 @@ export default function Home() {
     setRecipeIngredients((current) => current.filter((_, idx) => idx !== index));
   };
 
-  const saveRecipe = () => {
+  const handleSaveRecipe = () => {
+    if (!authToken) {
+      alert("Faça login para salvar ou editar receitas.");
+      return;
+    }
+
     if (!recipeName.trim()) {
       alert("Informe o nome da receita.");
       return;
@@ -133,8 +192,11 @@ export default function Home() {
       return;
     }
 
-    fetch(`${apiBase}/recipes`, {
-      method: "POST",
+    const method = editingRecipeId ? "PUT" : "POST";
+    const url = editingRecipeId ? `${apiBase}/recipes/${editingRecipeId}` : `${apiBase}/recipes`;
+
+    authFetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: recipeName,
@@ -149,13 +211,112 @@ export default function Home() {
         return res.json();
       })
       .then((recipe: Recipe) => {
-        setRecipes((current) => [recipe, ...current]);
+        setRecipes((current) => {
+          const filtered = current.filter((item) => item.id !== recipe.id);
+          return [recipe, ...filtered];
+        });
         setLabelVisible(true);
+        setEditingRecipeId(null);
       })
       .catch((error) => {
         console.error(error);
         alert("Erro ao salvar a receita. Verifique os dados e tente novamente.");
       });
+  };
+
+  const editRecipe = (recipe: Recipe) => {
+    setRecipeName(recipe.name);
+    setPortionSize(recipe.portion_size);
+    setRecipeIngredients(
+      recipe.ingredients.map((item) => ({
+        id: item.id,
+        name: item.name,
+        qty: item.pivot?.qty ?? item.qty,
+      }))
+    );
+    setEditingRecipeId(recipe.id);
+    setLabelVisible(true);
+  };
+
+  const deleteRecipe = (id: number) => {
+    if (!authToken) {
+      alert("Faça login para excluir receitas.");
+      return;
+    }
+
+    if (!confirm("Tem certeza que deseja excluir esta receita?")) {
+      return;
+    }
+
+    authFetch(`${apiBase}/recipes/${id}`, { method: "DELETE" })
+      .then((res) => {
+        if (!res.ok) {
+          return res.json().then((body) => Promise.reject(body));
+        }
+        return res.json();
+      })
+      .then(() => {
+        setRecipes((current) => current.filter((recipe) => recipe.id !== id));
+        if (editingRecipeId === id) {
+          clearRecipeForm();
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+        alert("Erro ao excluir a receita.");
+      });
+  };
+
+  const handleLoginRegister = () => {
+    const endpoint = authMode === "login" ? "login" : "register";
+
+    const payload: Record<string, string> = {
+      email: authEmail,
+      password: authPassword,
+    };
+
+    if (authMode === "register") {
+      payload.name = authEmail.split("@")[0] || "User";
+      payload.password_confirmation = authPasswordConfirm;
+    }
+
+    fetch(`${apiBase}/${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          return res.json().then((body) => Promise.reject(body));
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setAuthToken(data.token);
+        localStorage.setItem("authToken", data.token);
+        setUser(data.user);
+        setAuthEmail("");
+        setAuthPassword("");
+        setAuthPasswordConfirm("");
+      })
+      .catch((error) => {
+        console.error(error);
+        alert("Erro na autenticação. Verifique seus dados.");
+      });
+  };
+
+  const handleLogout = () => {
+    if (!authToken) {
+      setUser(null);
+      localStorage.removeItem("authToken");
+      return;
+    }
+
+    authFetch(`${apiBase}/logout`, { method: "POST" }).finally(() => {
+      setAuthToken(null);
+      setUser(null);
+      localStorage.removeItem("authToken");
+    });
   };
 
   const addCustomIngredient = () => {
@@ -174,7 +335,7 @@ export default function Home() {
       return;
     }
 
-    fetch(`${apiBase}/ingredients`, {
+    authFetch(`${apiBase}/ingredients`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -223,9 +384,89 @@ export default function Home() {
     <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
       <div className="mx-auto max-w-7xl space-y-8">
         <header className="rounded-xl bg-white p-6 shadow-sm">
-          <h1 className="text-3xl font-semibold">Gerador de Tabela Nutricional</h1>
-          <p className="mt-2 text-sm text-slate-600">Next.js frontend integrado ao backend Laravel + MySQL.</p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-semibold">Gerador de Tabela Nutricional</h1>
+              <p className="mt-2 text-sm text-slate-600">Next.js frontend integrado ao backend Laravel + MySQL.</p>
+            </div>
+            <div className="flex flex-col gap-2 text-right">
+              {user ? (
+                <>
+                  <div className="text-sm text-slate-700">Olá, {user.name}</div>
+                  <button
+                    onClick={handleLogout}
+                    className="rounded bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
+                  >
+                    Sair
+                  </button>
+                </>
+              ) : (
+                <div className="text-sm text-slate-700">Faça login para salvar, editar e excluir receitas.</div>
+              )}
+            </div>
+          </div>
         </header>
+
+        {!user && (
+          <section className="rounded-xl bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-xl font-semibold">Autenticação</h2>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAuthMode("login")}
+                  className={`rounded px-4 py-2 ${authMode === "login" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}
+                >
+                  Login
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthMode("register")}
+                  className={`rounded px-4 py-2 ${authMode === "register" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}
+                >
+                  Registrar
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-sm font-medium">Email</span>
+                <input
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  className="mt-1 w-full rounded border px-3 py-2"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium">Senha</span>
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  className="mt-1 w-full rounded border px-3 py-2"
+                />
+              </label>
+            </div>
+            {authMode === "register" && (
+              <label className="block mt-4">
+                <span className="text-sm font-medium">Confirmar senha</span>
+                <input
+                  type="password"
+                  value={authPasswordConfirm}
+                  onChange={(e) => setAuthPasswordConfirm(e.target.value)}
+                  className="mt-1 w-full rounded border px-3 py-2"
+                />
+              </label>
+            )}
+            <button
+              type="button"
+              onClick={handleLoginRegister}
+              className="mt-4 rounded bg-slate-900 px-5 py-3 text-white hover:bg-slate-700"
+            >
+              {authMode === "login" ? "Entrar" : "Registrar"}
+            </button>
+          </section>
+        )}
 
         <div className="grid gap-6 xl:grid-cols-[3fr_2fr]">
           <section className="space-y-6 rounded-xl bg-white p-6 shadow-sm">
@@ -307,11 +548,20 @@ export default function Home() {
 
             <button
               type="button"
-              onClick={saveRecipe}
+              onClick={handleSaveRecipe}
               className="rounded bg-slate-900 px-5 py-3 text-white hover:bg-slate-700"
             >
-              Gerar e salvar receita
+              {editingRecipeId ? "Atualizar receita" : "Gerar e salvar receita"}
             </button>
+            {editingRecipeId && (
+              <button
+                type="button"
+                onClick={clearRecipeForm}
+                className="rounded border border-slate-300 bg-white px-5 py-3 text-slate-900 hover:bg-slate-100"
+              >
+                Cancelar edição
+              </button>
+            )}
           </section>
 
           <section className="space-y-6 rounded-xl bg-white p-6 shadow-sm">
@@ -385,7 +635,7 @@ export default function Home() {
         </div>
 
         <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-          <section className="rounded-xl bg-white p-6 shadow-sm">
+          <section className="rounded-xl bg-white p-6 shadow-sm print-area">
             <h2 className="text-xl font-semibold">Rótulo nutricional</h2>
             <div className="mt-4 rounded border bg-slate-50 p-4">
               <div className="text-sm font-semibold">Porção de {portionSize} g</div>
@@ -422,8 +672,28 @@ export default function Home() {
               ) : (
                 recipes.map((recipe) => (
                   <div key={recipe.id} className="rounded border p-4">
-                    <div className="font-semibold">{recipe.name}</div>
-                    <div className="text-sm text-slate-600">Porção: {recipe.portion_size} g</div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="font-semibold">{recipe.name}</div>
+                        <div className="text-sm text-slate-600">Porção: {recipe.portion_size} g</div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => editRecipe(recipe)}
+                          className="rounded bg-slate-900 px-3 py-1 text-white hover:bg-slate-700"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteRecipe(recipe.id)}
+                          className="rounded bg-red-600 px-3 py-1 text-white hover:bg-red-500"
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    </div>
                     <div className="mt-2 text-sm text-slate-700">
                       Ingredientes: {recipe.ingredients.map((item) => item.name).join(", ")}
                     </div>

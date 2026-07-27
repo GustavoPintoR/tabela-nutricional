@@ -24,3 +24,29 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@media print {
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  main > div > :not(.print-area) {
+    display: none !important;
+  }
+
+  .print-area {
+    display: block !important;
+    width: 100%;
+  }
+
+  .print-area table {
+    font-size: 14px;
+  }
+
+  .print-area th,
+  .print-area td {
+    border: 1px solid #000 !important;
+    padding: 8px !important;
+  }
+}
