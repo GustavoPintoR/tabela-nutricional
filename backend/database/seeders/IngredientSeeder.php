@@ -20,5 +20,30 @@ class IngredientSeeder extends Seeder
         foreach ($ingredients as $data) {
             Ingredient::updateOrCreate(['name' => $data['name']], $data);
         }
+
+        $tacoPath = base_path('../data/TACO.json');
+        if (file_exists($tacoPath)) {
+            $tacoItems = json_decode(file_get_contents($tacoPath), true);
+            if (is_array($tacoItems)) {
+                foreach ($tacoItems as $item) {
+                    $name = trim($item['description'] ?? '');
+                    if ($name === '') {
+                        continue;
+                    }
+
+                    $data = [
+                        'name' => $name,
+                        'energia' => is_numeric($item['energy_kcal']) ? floatval($item['energy_kcal']) : 0.0,
+                        'carbo' => is_numeric($item['carbohydrate_g']) ? floatval($item['carbohydrate_g']) : 0.0,
+                        'proteina' => is_numeric($item['protein_g']) ? floatval($item['protein_g']) : 0.0,
+                        'gordura' => is_numeric($item['lipid_g']) ? floatval($item['lipid_g']) : 0.0,
+                        'fibra' => is_numeric($item['fiber_g']) ? floatval($item['fiber_g']) : 0.0,
+                        'sodio' => is_numeric($item['sodium_mg']) ? floatval($item['sodium_mg']) : 0.0,
+                    ];
+
+                    Ingredient::updateOrCreate(['name' => $name], $data);
+                }
+            }
+        }
     }
 }

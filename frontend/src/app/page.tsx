@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 
 type Ingredient = {
   id: number;
@@ -65,6 +65,21 @@ export default function Home() {
   const [authPassword, setAuthPassword] = useState("");
   const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [editingRecipeId, setEditingRecipeId] = useState<number | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoSize, setLogoSize] = useState(120);
+  const [logoPosition, setLogoPosition] = useState({ x: 0, y: 0 });
+  const [tablePosition, setTablePosition] = useState({ x: 0, y: 0 });
+
+  const handleLogoUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setLogoUrl(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    setLogoUrl(url);
+  };
 
   useEffect(() => {
     fetch(`${apiBase}/ingredients`)
@@ -636,11 +651,123 @@ export default function Home() {
 
         <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
           <section className="rounded-xl bg-white p-6 shadow-sm print-area">
-            <h2 className="text-xl font-semibold">Rótulo nutricional</h2>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">Rótulo nutricional</h2>
+                <p className="text-sm text-slate-600">Carregue um logo e ajuste o layout do rótulo.</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-sm font-medium">Logo</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                    className="mt-1 w-full rounded border px-3 py-2"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-medium">Tamanho do logo</span>
+                  <input
+                    type="range"
+                    min={60}
+                    max={220}
+                    value={logoSize}
+                    onChange={(e) => setLogoSize(Number(e.target.value))}
+                    className="mt-1 w-full"
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-sm font-medium">Mover logo X</span>
+                <input
+                  type="range"
+                  min={-40}
+                  max={40}
+                  value={logoPosition.x}
+                  onChange={(e) => setLogoPosition((current) => ({ ...current, x: Number(e.target.value) }))}
+                  className="mt-1 w-full"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium">Mover logo Y</span>
+                <input
+                  type="range"
+                  min={-40}
+                  max={40}
+                  value={logoPosition.y}
+                  onChange={(e) => setLogoPosition((current) => ({ ...current, y: Number(e.target.value) }))}
+                  className="mt-1 w-full"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium">Mover tabela X</span>
+                <input
+                  type="range"
+                  min={-40}
+                  max={40}
+                  value={tablePosition.x}
+                  onChange={(e) => setTablePosition((current) => ({ ...current, x: Number(e.target.value) }))}
+                  className="mt-1 w-full"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium">Mover tabela Y</span>
+                <input
+                  type="range"
+                  min={-40}
+                  max={40}
+                  value={tablePosition.y}
+                  onChange={(e) => setTablePosition((current) => ({ ...current, y: Number(e.target.value) }))}
+                  className="mt-1 w-full"
+                />
+              </label>
+            </div>
             <div className="mt-4 rounded border bg-slate-50 p-4">
               <div className="text-sm font-semibold">Porção de {portionSize} g</div>
               {labelVisible ? (
-                <table className="mt-4 w-full border-collapse text-sm">
+                <div className="relative overflow-hidden rounded border bg-white p-4" style={{ minHeight: 320 }}>
+                  {logoUrl && (
+                    <img
+                      src={logoUrl}
+                      alt="Logo da marca"
+                      style={{
+                        position: "absolute",
+                        top: `${logoPosition.y}px`,
+                        left: `${logoPosition.x}px`,
+                        width: `${logoSize}px`,
+                        maxWidth: "100%",
+                      }}
+                    />
+                  )}
+                  <div className="relative" style={{ transform: `translate(${tablePosition.x}px, ${tablePosition.y}px)` }}>
+                    <table className="mt-4 w-full border-collapse text-sm">
+                      <thead>
+                        <tr>
+                          <th className="border px-2 py-1 text-left">Nutriente</th>
+                          <th className="border px-2 py-1 text-left">Qtd.</th>
+                          <th className="border px-2 py-1 text-left">%VD*</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lineItem('Valor energético', printTotals.energia, 'kcal', 2000)}
+                        {lineItem('Carboidratos', printTotals.carbo, 'g', 300)}
+                        {lineItem('Proteínas', printTotals.proteina, 'g', 75)}
+                        {lineItem('Gorduras totais', printTotals.gordura, 'g', 55)}
+                        {lineItem('Fibra alimentar', printTotals.fibra, 'g', 25)}
+                        {lineItem('Sódio', printTotals.sodio, 'mg', 2000)}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-600">Clique em "Gerar e salvar receita" para calcular o rótulo.</p>
+              )}
+              <p className="mt-3 text-xs text-slate-500">*Valores diários com base em 2.000 kcal</p>
+            </div>
+          </section>
                   <thead>
                     <tr>
                       <th className="border px-2 py-1 text-left">Nutriente</th>
