@@ -768,28 +768,6 @@ export default function Home() {
               <p className="mt-3 text-xs text-slate-500">*Valores diários com base em 2.000 kcal</p>
             </div>
           </section>
-                  <thead>
-                    <tr>
-                      <th className="border px-2 py-1 text-left">Nutriente</th>
-                      <th className="border px-2 py-1 text-left">Qtd.</th>
-                      <th className="border px-2 py-1 text-left">%VD*</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lineItem('Valor energético', printTotals.energia, 'kcal', 2000)}
-                    {lineItem('Carboidratos', printTotals.carbo, 'g', 300)}
-                    {lineItem('Proteínas', printTotals.proteina, 'g', 75)}
-                    {lineItem('Gorduras totais', printTotals.gordura, 'g', 55)}
-                    {lineItem('Fibra alimentar', printTotals.fibra, 'g', 25)}
-                    {lineItem('Sódio', printTotals.sodio, 'mg', 2000)}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="mt-4 text-sm text-slate-600">Clique em "Gerar e salvar receita" para calcular o rótulo.</p>
-              )}
-              <p className="mt-3 text-xs text-slate-500">*Valores diários com base em 2.000 kcal</p>
-            </div>
-          </section>
 
           <section className="rounded-xl bg-white p-6 shadow-sm">
             <h2 className="text-xl font-semibold">Receitas salvas</h2>
