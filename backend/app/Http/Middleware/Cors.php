@@ -13,7 +13,16 @@ class Cors
         /** @var Response $response */
         $response = $next($request);
 
-        $response->headers->set('Access-Control-Allow-Origin', '*');
+        $allowedOrigins = array_filter(array_map('trim', explode(',', env('CORS_ALLOWED_ORIGINS', '*'))));
+        $origin = $request->headers->get('origin');
+
+        if (in_array('*', $allowedOrigins, true)) {
+            $response->headers->set('Access-Control-Allow-Origin', '*');
+        } elseif ($origin && in_array($origin, $allowedOrigins, true)) {
+            $response->headers->set('Access-Control-Allow-Origin', $origin);
+            $response->headers->set('Vary', 'Origin');
+        }
+
         $response->headers->set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
         $response->headers->set('Access-Control-Allow-Headers', 'Content-Type,Accept,Authorization,X-Requested-With,X-CSRF-TOKEN');
 
