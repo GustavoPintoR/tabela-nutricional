@@ -2,6 +2,21 @@ let taco = {}
 let recipeIngredients = []
 let recipes = JSON.parse(localStorage.getItem('recipes') || '[]')
 
+const recipeName = document.getElementById('recipeName')
+const portionSize = document.getElementById('portionSize')
+const ingredientSelect = document.getElementById('ingredientSelect')
+const ingredientQty = document.getElementById('ingredientQty')
+const currentIngredients = document.getElementById('currentIngredients')
+const nutritionLabel = document.getElementById('nutritionLabel')
+const recipeList = document.getElementById('recipeList')
+const newName = document.getElementById('newName')
+const newEnergy = document.getElementById('newEnergy')
+const newCarb = document.getElementById('newCarb')
+const newProtein = document.getElementById('newProtein')
+const newFat = document.getElementById('newFat')
+const newFiber = document.getElementById('newFiber')
+const newSodium = document.getElementById('newSodium')
+
 const VD = {
   energia: 2000,
   carbo: 300,
@@ -12,10 +27,11 @@ const VD = {
 }
 
 function normalize(value) {
-  if (value === 'NA' || value === 'Tr' || value === '' || value === null) {
+  if (value === 'NA' || value === 'Tr' || value === '' || value === null || value === undefined) {
     return 0
   }
-  return Number(value)
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : 0
 }
 
 function slugify(text) {
@@ -60,6 +76,14 @@ fetch('data/taco.json')
 
 function populateIngredients() {
   ingredientSelect.innerHTML = ''
+
+  const placeholder = document.createElement('option')
+  placeholder.value = ''
+  placeholder.textContent = 'Selecione um ingrediente'
+  placeholder.selected = true
+  placeholder.disabled = true
+  ingredientSelect.appendChild(placeholder)
+
   Object.keys(taco).forEach(k => {
     const opt = document.createElement('option')
     opt.value = k
@@ -69,30 +93,56 @@ function populateIngredients() {
 }
 
 function addIngredient() {
-  recipeIngredients.push({
-    key: ingredientSelect.value,
-    qty: Number(ingredientQty.value)
-  })
+  const key = ingredientSelect.value
+  const qty = Number(ingredientQty.value)
+
+  if (!key) {
+    alert('Selecione um ingrediente.')
+    return
+  }
+
+  if (!qty || qty <= 0) {
+    alert('Informe uma quantidade válida em gramas.')
+    return
+  }
+
+  recipeIngredients.push({ key, qty })
   renderCurrentIngredients()
+  ingredientQty.value = ''
 }
 
 function renderCurrentIngredients() {
   currentIngredients.innerHTML = ''
-  recipeIngredients.forEach(i => {
+  recipeIngredients.forEach((i, index) => {
     const li = document.createElement('li')
-    li.textContent = `${taco[i.key].name} - ${i.qty}g`
+    li.className = 'ingredient-row'
+
+    const label = document.createElement('span')
+    label.textContent = `${taco[i.key]?.name || 'Ingrediente desconhecido'} - ${i.qty}g`
+
+    const removeButton = document.createElement('button')
+    removeButton.type = 'button'
+    removeButton.textContent = 'Remover'
+    removeButton.onclick = () => removeIngredient(index)
+
+    li.appendChild(label)
+    li.appendChild(removeButton)
     currentIngredients.appendChild(li)
   })
 }
 
-function generateLabel() {
-  const portion = Number(portionSize.value)
+function removeIngredient(index) {
+  recipeIngredients.splice(index, 1)
+  renderCurrentIngredients()
+}
 
-  let total = { energia:0, carbo:0, proteina:0, gordura:0, fibra:0, sodio:0 }
+function calculateTotals() {
+  const total = { energia:0, carbo:0, proteina:0, gordura:0, fibra:0, sodio:0 }
   let totalWeight = 0
 
   recipeIngredients.forEach(i => {
     const f = taco[i.key]
+    if (!f) return
     const factor = i.qty / 100
 
     total.energia += f.energia * factor
@@ -104,6 +154,41 @@ function generateLabel() {
 
     totalWeight += i.qty
   })
+
+  return { total, totalWeight }
+}
+
+function saveRecipeData(recipe) {
+  recipes.unshift(recipe)
+  localStorage.setItem('recipes', JSON.stringify(recipes))
+  renderRecipes()
+}
+
+function generateLabel(saveRecipe = true) {
+  const name = recipeName.value.trim()
+  const portion = Number(portionSize.value)
+
+  if (!name) {
+    alert('Informe o nome da receita.')
+    return
+  }
+
+  if (!portion || portion <= 0) {
+    alert('Informe o tamanho da porção em gramas.')
+    return
+  }
+
+  if (!recipeIngredients.length) {
+    alert('Adicione pelo menos um ingrediente à receita.')
+    return
+  }
+
+  const { total, totalWeight } = calculateTotals()
+
+  if (totalWeight <= 0) {
+    alert('O peso total da receita deve ser maior que zero.')
+    return
+  }
 
   const pf = portion / totalWeight
 
@@ -121,32 +206,39 @@ function generateLabel() {
       ${row('Sódio', total.sodio*pf, 'mg', VD.sodio)}
     </table>
     <p><strong>Ingredientes:</strong> ${
-      recipeIngredients.map(i => taco[i.key].name).join(', ')
+      recipeIngredients.map(i => taco[i.key]?.name || 'Ingrediente desconhecido').join(', ')
     }</p>
     <p style="font-size:10px">*Valores diários com base em 2.000 kcal</p>
   `
 
-  const savedRecipe = {
-    name: recipeName.value,
-    portionSize: portion,
-    ingredients: [...recipeIngredients]
+  if (saveRecipe) {
+    const savedRecipe = {
+      name,
+      portionSize: portion,
+      ingredients: [...recipeIngredients]
     }
-
-    recipes.unshift(savedRecipe)
-    localStorage.setItem('recipes', JSON.stringify(recipes))
-    renderRecipes()
+    saveRecipeData(savedRecipe)
+  }
 }
 
 function row(label, value, unit, vd) {
+  const percentage = vd ? `${((value / vd) * 100).toFixed(0)}%` : '—'
   return `<tr>
     <td>${label}</td>
     <td>${value.toFixed(1)} ${unit}</td>
-    <td>${((value/vd)*100).toFixed(0)}%</td>
+    <td>${percentage}</td>
   </tr>`
 }
 
 function renderRecipes() {
   recipeList.innerHTML = ''
+
+  if (!recipes.length) {
+    const placeholder = document.createElement('li')
+    placeholder.textContent = 'Nenhuma receita salva.'
+    recipeList.appendChild(placeholder)
+    return
+  }
 
   recipes.slice(0, 5).forEach((r, index) => {
     const li = document.createElement('li')
@@ -160,43 +252,64 @@ function renderRecipes() {
 }
 
 function addCustomFood() {
-  const key = newName.value.toLowerCase().replace(/\s/g,'_')
+  const name = newName.value.trim()
+  const energy = Number(newEnergy.value)
+  const carb = Number(newCarb.value)
+  const protein = Number(newProtein.value)
+  const fat = Number(newFat.value)
+  const fiber = Number(newFiber.value)
+  const sodium = Number(newSodium.value)
 
+  if (!name || !Number.isFinite(energy) || !Number.isFinite(carb) || !Number.isFinite(protein) || !Number.isFinite(fat) || !Number.isFinite(fiber) || !Number.isFinite(sodium)) {
+    alert('Preencha todos os campos de ingrediente com valores numéricos válidos.')
+    return
+  }
+
+  const key = name.toLowerCase().replace(/\s+/g,'_')
   const customFoods = JSON.parse(localStorage.getItem('customFoods') || '{}')
 
   customFoods[key] = {
-    name: newName.value,
-    energia: +newEnergy.value,
-    carbo: +newCarb.value,
-    proteina: +newProtein.value,
-    gordura: +newFat.value,
-    fibra: +newFiber.value,
-    sodio: +newSodium.value
+    name,
+    energia: energy,
+    carbo: carb,
+    proteina: protein,
+    gordura: fat,
+    fibra: fiber,
+    sodio: sodium
   }
 
   localStorage.setItem('customFoods', JSON.stringify(customFoods))
   taco[key] = customFoods[key]
   populateIngredients()
+
+  newName.value = ''
+  newEnergy.value = ''
+  newCarb.value = ''
+  newProtein.value = ''
+  newFat.value = ''
+  newFiber.value = ''
+  newSodium.value = ''
+}
+
+function clearRecipeState() {
+  recipeIngredients = []
+  recipeName.value = ''
+  portionSize.value = ''
+  ingredientQty.value = ''
+  currentIngredients.innerHTML = ''
+  nutritionLabel.innerHTML = ''
 }
 
 function restartRecipe() {
   if (!confirm('Deseja reiniciar a receita atual?')) return
-
-  recipeIngredients = []
-
-  recipeName.value = ''
-  portionSize.value = ''
-  ingredientQty.value = ''
-
-  currentIngredients.innerHTML = ''
-  nutritionLabel.innerHTML = ''
+  clearRecipeState()
 }
 
 function loadRecipe(index) {
   const recipe = recipes[index]
 
   // limpa estado atual
-  restartRecipe()
+  clearRecipeState()
 
   // restaura dados
   recipeName.value = recipe.name
@@ -207,5 +320,5 @@ function loadRecipe(index) {
   renderCurrentIngredients()
 
   // gera novamente a tabela
-  generateLabel()
+  generateLabel(false)
 }

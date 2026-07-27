@@ -29,6 +29,19 @@ input, select, button {
   margin: 4px 0;
 }
 
+.ingredient-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.ingredient-row button {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  width: auto;
+}
+
 .primary {
   background: #000;
   color: #fff;
