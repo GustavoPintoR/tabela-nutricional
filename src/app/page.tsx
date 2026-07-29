@@ -1,814 +1,362 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Ingredient = {
   id: number;
   name: string;
-  energia: number;
-  carbo: number;
-  proteina: number;
-  gordura: number;
-  fibra: number;
-  sodio: number;
+  category: string;
+  energy: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  sodium: number;
 };
 
-type RecipeIngredient = {
-  id: number;
+type RecipeItem = Ingredient & { grams: number };
+
+type SavedRecipe = {
+  id: string;
   name: string;
-  qty: number;
+  portion: number;
+  items: RecipeItem[];
+  createdAt: string;
 };
 
-type Recipe = {
-  id: number;
-  name: string;
-  portion_size: number;
-  ingredients: Array<RecipeIngredient & { pivot?: { qty: number } }>;
-};
+type Nutrients = Pick<Ingredient, "energy" | "protein" | "carbs" | "fat" | "fiber" | "sodium">;
 
-type User = {
-  name: string;
-  email: string;
-};
-
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
-
-const initialCustomIngredient = {
+const emptyIngredient = {
   name: "",
-  energia: "",
-  carbo: "",
-  proteina: "",
-  gordura: "",
-  fibra: "",
-  sodio: "",
+  category: "Alimentos adicionados",
+  energy: "",
+  protein: "",
+  carbs: "",
+  fat: "",
+  fiber: "",
+  sodium: "",
 };
 
-const normalizeValue = (value: string) => {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) ? numberValue : 0;
+const nutrientLabels: Array<[keyof Nutrients, string, string]> = [
+  ["energy", "Valor energético", "kcal"],
+  ["carbs", "Carboidratos", "g"],
+  ["protein", "Proteínas", "g"],
+  ["fat", "Gorduras totais", "g"],
+  ["fiber", "Fibra alimentar", "g"],
+  ["sodium", "Sódio", "mg"],
+];
+
+const number = (value: string | number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 };
+
+const format = (value: number, digits = 1) =>
+  new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  }).format(value);
 
 export default function Home() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [selectedIngredient, setSelectedIngredient] = useState<number | "">("");
-  const [ingredientQty, setIngredientQty] = useState(0);
-  const [recipeIngredients, setRecipeIngredients] = useState<RecipeIngredient[]>([]);
-  const [recipeName, setRecipeName] = useState("");
-  const [portionSize, setPortionSize] = useState(50);
-  const [labelVisible, setLabelVisible] = useState(false);
-  const [customIngredient, setCustomIngredient] = useState(initialCustomIngredient);
-  const [authToken, setAuthToken] = useState<string | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
-  const [editingRecipeId, setEditingRecipeId] = useState<number | null>(null);
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [logoSize, setLogoSize] = useState(120);
-  const [logoPosition, setLogoPosition] = useState({ x: 0, y: 0 });
-  const [tablePosition, setTablePosition] = useState({ x: 0, y: 0 });
-
-  const handleLogoUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      setLogoUrl(null);
-      return;
+  const [items, setItems] = useState<RecipeItem[]>([]);
+  const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>(() => {
+    if (typeof window === "undefined") return [];
+    const stored = localStorage.getItem("rotulo-facil-recipes");
+    if (!stored) return [];
+    try {
+      return JSON.parse(stored);
+    } catch {
+      localStorage.removeItem("rotulo-facil-recipes");
+      return [];
     }
-
-    const url = URL.createObjectURL(file);
-    setLogoUrl(url);
-  };
+  });
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("Todas");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [grams, setGrams] = useState(100);
+  const [recipeName, setRecipeName] = useState("Minha receita");
+  const [portion, setPortion] = useState(100);
+  const [showCustom, setShowCustom] = useState(false);
+  const [custom, setCustom] = useState(emptyIngredient);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [mobilePanel, setMobilePanel] = useState<"ingredients" | "recipe">("ingredients");
 
   useEffect(() => {
-    fetch(`${apiBase}/ingredients`)
-      .then((res) => res.json())
+    fetch("/api/ingredients")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Não foi possível carregar a TACO.");
+        return response.json();
+      })
       .then(setIngredients)
-      .catch(console.error);
+      .catch((error) => setNotice(error.message))
+      .finally(() => setLoading(false));
 
-    fetch(`${apiBase}/recipes`)
-      .then((res) => res.json())
-      .then(setRecipes)
-      .catch(console.error);
-
-    const token = localStorage.getItem("authToken");
-    if (token) {
-      setAuthToken(token);
-      fetchUser(token);
-    }
   }, []);
 
-  const fetchUser = (token: string) => {
-    fetch(`${apiBase}/user`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error("Unauthorized");
-        }
-        return res.json();
-      })
-      .then(setUser)
-      .catch(() => {
-        setAuthToken(null);
-        localStorage.removeItem("authToken");
-      });
-  };
-
-  const authFetch = (url: string, init: RequestInit = {}) => {
-    const headers = {
-      ...(init.headers || {}),
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-    };
-
-    return fetch(url, { ...init, headers });
-  };
-
-  const totals = useMemo(() => {
-    const totals = { energia: 0, carbo: 0, proteina: 0, gordura: 0, fibra: 0, sodio: 0 };
-    let totalWeight = 0;
-
-    recipeIngredients.forEach((item) => {
-      const ingredient = ingredients.find((i) => i.id === item.id);
-      if (!ingredient) return;
-
-      const factor = item.qty / 100;
-      totals.energia += ingredient.energia * factor;
-      totals.carbo += ingredient.carbo * factor;
-      totals.proteina += ingredient.proteina * factor;
-      totals.gordura += ingredient.gordura * factor;
-      totals.fibra += ingredient.fibra * factor;
-      totals.sodio += ingredient.sodio * factor;
-      totalWeight += item.qty;
-    });
-
-    return { totals, totalWeight };
-  }, [recipeIngredients, ingredients]);
-
-  const clearRecipeForm = () => {
-    setRecipeName("");
-    setPortionSize(50);
-    setRecipeIngredients([]);
-    setEditingRecipeId(null);
-    setLabelVisible(false);
-  };
-
-  const addIngredient = () => {
-    if (!selectedIngredient) {
-      alert("Selecione um ingrediente.");
-      return;
-    }
-
-    if (!ingredientQty || ingredientQty <= 0) {
-      alert("Informe uma quantidade válida.");
-      return;
-    }
-
-    const ingredient = ingredients.find((item) => item.id === Number(selectedIngredient));
-    if (!ingredient) return;
-
-    setRecipeIngredients((current) => [
-      ...current,
-      { id: ingredient.id, name: ingredient.name, qty: ingredientQty },
-    ]);
-    setIngredientQty(0);
-  };
-
-  const removeIngredient = (index: number) => {
-    setRecipeIngredients((current) => current.filter((_, idx) => idx !== index));
-  };
-
-  const handleSaveRecipe = () => {
-    if (!authToken) {
-      alert("Faça login para salvar ou editar receitas.");
-      return;
-    }
-
-    if (!recipeName.trim()) {
-      alert("Informe o nome da receita.");
-      return;
-    }
-
-    if (!portionSize || portionSize <= 0) {
-      alert("Informe o tamanho da porção.");
-      return;
-    }
-
-    if (recipeIngredients.length === 0) {
-      alert("Adicione pelo menos um ingrediente.");
-      return;
-    }
-
-    if (totals.totalWeight <= 0) {
-      alert("O peso total da receita deve ser maior que zero.");
-      return;
-    }
-
-    const method = editingRecipeId ? "PUT" : "POST";
-    const url = editingRecipeId ? `${apiBase}/recipes/${editingRecipeId}` : `${apiBase}/recipes`;
-
-    authFetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: recipeName,
-        portion_size: portionSize,
-        ingredients: recipeIngredients.map((item) => ({ id: item.id, qty: item.qty })),
-      }),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          return res.json().then((body) => Promise.reject(body));
-        }
-        return res.json();
-      })
-      .then((recipe: Recipe) => {
-        setRecipes((current) => {
-          const filtered = current.filter((item) => item.id !== recipe.id);
-          return [recipe, ...filtered];
-        });
-        setLabelVisible(true);
-        setEditingRecipeId(null);
-      })
-      .catch((error) => {
-        console.error(error);
-        alert("Erro ao salvar a receita. Verifique os dados e tente novamente.");
-      });
-  };
-
-  const editRecipe = (recipe: Recipe) => {
-    setRecipeName(recipe.name);
-    setPortionSize(recipe.portion_size);
-    setRecipeIngredients(
-      recipe.ingredients.map((item) => ({
-        id: item.id,
-        name: item.name,
-        qty: item.pivot?.qty ?? item.qty,
-      }))
-    );
-    setEditingRecipeId(recipe.id);
-    setLabelVisible(true);
-  };
-
-  const deleteRecipe = (id: number) => {
-    if (!authToken) {
-      alert("Faça login para excluir receitas.");
-      return;
-    }
-
-    if (!confirm("Tem certeza que deseja excluir esta receita?")) {
-      return;
-    }
-
-    authFetch(`${apiBase}/recipes/${id}`, { method: "DELETE" })
-      .then((res) => {
-        if (!res.ok) {
-          return res.json().then((body) => Promise.reject(body));
-        }
-        return res.json();
-      })
-      .then(() => {
-        setRecipes((current) => current.filter((recipe) => recipe.id !== id));
-        if (editingRecipeId === id) {
-          clearRecipeForm();
-        }
-      })
-      .catch((error) => {
-        console.error(error);
-        alert("Erro ao excluir a receita.");
-      });
-  };
-
-  const handleLoginRegister = () => {
-    const endpoint = authMode === "login" ? "login" : "register";
-
-    const payload: Record<string, string> = {
-      email: authEmail,
-      password: authPassword,
-    };
-
-    if (authMode === "register") {
-      payload.name = authEmail.split("@")[0] || "User";
-      payload.password_confirmation = authPasswordConfirm;
-    }
-
-    fetch(`${apiBase}/${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          return res.json().then((body) => Promise.reject(body));
-        }
-        return res.json();
-      })
-      .then((data) => {
-        setAuthToken(data.token);
-        localStorage.setItem("authToken", data.token);
-        setUser(data.user);
-        setAuthEmail("");
-        setAuthPassword("");
-        setAuthPasswordConfirm("");
-      })
-      .catch((error) => {
-        console.error(error);
-        alert("Erro na autenticação. Verifique seus dados.");
-      });
-  };
-
-  const handleLogout = () => {
-    if (!authToken) {
-      setUser(null);
-      localStorage.removeItem("authToken");
-      return;
-    }
-
-    authFetch(`${apiBase}/logout`, { method: "POST" }).finally(() => {
-      setAuthToken(null);
-      setUser(null);
-      localStorage.removeItem("authToken");
-    });
-  };
-
-  const addCustomIngredient = () => {
-    const payload = {
-      name: customIngredient.name.trim(),
-      energia: normalizeValue(customIngredient.energia),
-      carbo: normalizeValue(customIngredient.carbo),
-      proteina: normalizeValue(customIngredient.proteina),
-      gordura: normalizeValue(customIngredient.gordura),
-      fibra: normalizeValue(customIngredient.fibra),
-      sodio: normalizeValue(customIngredient.sodio),
-    };
-
-    if (!payload.name) {
-      alert("Informe o nome do ingrediente.");
-      return;
-    }
-
-    authFetch(`${apiBase}/ingredients`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          return res.json().then((body) => Promise.reject(body));
-        }
-        return res.json();
-      })
-      .then((ingredient: Ingredient) => {
-        setIngredients((current) => [...current, ingredient]);
-        setCustomIngredient(initialCustomIngredient);
-      })
-      .catch((error) => {
-        console.error(error);
-        alert("Erro ao adicionar ingrediente customizado.");
-      });
-  };
-
-  const formatPercentage = (value: number, daily: number) => {
-    return daily > 0 ? `${((value / daily) * 100).toFixed(0)}%` : "—";
-  };
-
-  const lineItem = (label: string, value: number, unit: string, daily: number) => (
-    <tr>
-      <td className="border px-2 py-1">{label}</td>
-      <td className="border px-2 py-1">{value.toFixed(1)} {unit}</td>
-      <td className="border px-2 py-1">{formatPercentage(value, daily)}</td>
-    </tr>
+  const categories = useMemo(
+    () => ["Todas", ...Array.from(new Set(ingredients.map((item) => item.category))).sort()],
+    [ingredients],
   );
 
-  const printTotals = useMemo(() => {
-    const multiplier = portionSize > 0 && totals.totalWeight > 0 ? portionSize / totals.totalWeight : 0;
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase("pt-BR");
+    return ingredients
+      .filter((item) => category === "Todas" || item.category === category)
+      .filter((item) => !normalized || item.name.toLocaleLowerCase("pt-BR").includes(normalized))
+      .slice(0, 80);
+  }, [ingredients, query, category]);
+
+  const totals = useMemo(
+    () =>
+      items.reduce(
+        (sum, item) => {
+          const factor = item.grams / 100;
+          sum.weight += item.grams;
+          sum.energy += item.energy * factor;
+          sum.protein += item.protein * factor;
+          sum.carbs += item.carbs * factor;
+          sum.fat += item.fat * factor;
+          sum.fiber += item.fiber * factor;
+          sum.sodium += item.sodium * factor;
+          return sum;
+        },
+        { weight: 0, energy: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sodium: 0 },
+      ),
+    [items],
+  );
+
+  const perPortion = useMemo(() => {
+    const factor = totals.weight > 0 ? portion / totals.weight : 0;
     return {
-      energia: totals.totals.energia * multiplier,
-      carbo: totals.totals.carbo * multiplier,
-      proteina: totals.totals.proteina * multiplier,
-      gordura: totals.totals.gordura * multiplier,
-      fibra: totals.totals.fibra * multiplier,
-      sodio: totals.totals.sodio * multiplier,
+      energy: totals.energy * factor,
+      protein: totals.protein * factor,
+      carbs: totals.carbs * factor,
+      fat: totals.fat * factor,
+      fiber: totals.fiber * factor,
+      sodium: totals.sodium * factor,
     };
-  }, [portionSize, totals]);
+  }, [totals, portion]);
+
+  const addSelected = () => {
+    const ingredient = ingredients.find((item) => item.id === selectedId);
+    if (!ingredient || grams <= 0) return;
+    setItems((current) => {
+      const existing = current.find((item) => item.id === ingredient.id);
+      if (existing) {
+        return current.map((item) =>
+          item.id === ingredient.id ? { ...item, grams: item.grams + grams } : item,
+        );
+      }
+      return [...current, { ...ingredient, grams }];
+    });
+    setSelectedId(null);
+    setMobilePanel("recipe");
+  };
+
+  const saveRecipe = () => {
+    if (!items.length || !recipeName.trim()) return;
+    const recipe: SavedRecipe = {
+      id: crypto.randomUUID(),
+      name: recipeName.trim(),
+      portion,
+      items,
+      createdAt: new Date().toISOString(),
+    };
+    const next = [recipe, ...savedRecipes].slice(0, 20);
+    setSavedRecipes(next);
+    localStorage.setItem("rotulo-facil-recipes", JSON.stringify(next));
+    setNotice("Receita salva neste dispositivo.");
+  };
+
+  const loadRecipe = (recipe: SavedRecipe) => {
+    setRecipeName(recipe.name);
+    setPortion(recipe.portion);
+    setItems(recipe.items);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const deleteRecipe = (id: string) => {
+    const next = savedRecipes.filter((recipe) => recipe.id !== id);
+    setSavedRecipes(next);
+    localStorage.setItem("rotulo-facil-recipes", JSON.stringify(next));
+  };
+
+  const saveCustomIngredient = async () => {
+    if (!custom.name.trim()) return;
+    setSaving(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/ingredients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(custom),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Não foi possível adicionar o ingrediente.");
+      setIngredients((current) => [...current, data]);
+      setCustom(emptyIngredient);
+      setShowCustom(false);
+      setSelectedId(data.id);
+      setNotice(`${data.name} foi adicionado à TACO.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Ocorreu um erro inesperado.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
-      <div className="mx-auto max-w-7xl space-y-8">
-        <header className="rounded-xl bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-3xl font-semibold">Gerador de Tabela Nutricional</h1>
-              <p className="mt-2 text-sm text-slate-600">Next.js frontend integrado ao backend Laravel + MySQL.</p>
-            </div>
-            <div className="flex flex-col gap-2 text-right">
-              {user ? (
-                <>
-                  <div className="text-sm text-slate-700">Olá, {user.name}</div>
-                  <button
-                    onClick={handleLogout}
-                    className="rounded bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
-                  >
-                    Sair
-                  </button>
-                </>
-              ) : (
-                <div className="text-sm text-slate-700">Faça login para salvar, editar e excluir receitas.</div>
-              )}
-            </div>
+    <main>
+      <header className="topbar">
+        <a className="brand" href="#" aria-label="Rótulo Fácil, início">
+          <span className="brand-mark">RF</span>
+          <span>Rótulo Fácil</span>
+        </a>
+        <div className="header-copy">
+          <strong>Calculadora nutricional</strong>
+          <span>Dados da Tabela TACO</span>
+        </div>
+        <button className="ghost-button print-hide" onClick={() => window.print()}>
+          Imprimir rótulo
+        </button>
+      </header>
+
+      {notice && (
+        <button className="notice print-hide" onClick={() => setNotice("")} aria-label="Fechar aviso">
+          <span>{notice}</span><b>×</b>
+        </button>
+      )}
+
+      <section className="hero print-hide">
+        <div>
+          <p className="eyebrow">FORMULE • CALCULE • ROTULE</p>
+          <h1>Da receita ao rótulo, sem complicação.</h1>
+          <p>Monte sua fórmula com ingredientes da TACO e veja os valores nutricionais por porção em tempo real.</p>
+        </div>
+        <div className="hero-stat">
+          <span>{ingredients.length || "—"}</span>
+          <p>alimentos disponíveis</p>
+        </div>
+      </section>
+
+      <nav className="mobile-tabs print-hide" aria-label="Seções do editor">
+        <button className={mobilePanel === "ingredients" ? "active" : ""} onClick={() => setMobilePanel("ingredients")}>1. Ingredientes</button>
+        <button className={mobilePanel === "recipe" ? "active" : ""} onClick={() => setMobilePanel("recipe")}>2. Receita</button>
+      </nav>
+
+      <section className="workspace">
+        <aside className={`ingredient-panel print-hide ${mobilePanel !== "ingredients" ? "mobile-hidden" : ""}`}>
+          <div className="section-heading">
+            <div><span className="step">1</span><h2>Escolha os ingredientes</h2></div>
+            <button className="text-button" onClick={() => setShowCustom(true)}>+ Novo ingrediente</button>
           </div>
-        </header>
-
-        {!user && (
-          <section className="rounded-xl bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-xl font-semibold">Autenticação</h2>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setAuthMode("login")}
-                  className={`rounded px-4 py-2 ${authMode === "login" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}
-                >
-                  Login
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAuthMode("register")}
-                  className={`rounded px-4 py-2 ${authMode === "register" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}
-                >
-                  Registrar
-                </button>
-              </div>
-            </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-medium">Email</span>
-                <input
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Senha</span>
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-            </div>
-            {authMode === "register" && (
-              <label className="block mt-4">
-                <span className="text-sm font-medium">Confirmar senha</span>
-                <input
-                  type="password"
-                  value={authPasswordConfirm}
-                  onChange={(e) => setAuthPasswordConfirm(e.target.value)}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-            )}
-            <button
-              type="button"
-              onClick={handleLoginRegister}
-              className="mt-4 rounded bg-slate-900 px-5 py-3 text-white hover:bg-slate-700"
-            >
-              {authMode === "login" ? "Entrar" : "Registrar"}
-            </button>
-          </section>
-        )}
-
-        <div className="grid gap-6 xl:grid-cols-[3fr_2fr]">
-          <section className="space-y-6 rounded-xl bg-white p-6 shadow-sm">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-medium">Nome da receita</span>
-                <input
-                  value={recipeName}
-                  onChange={(e) => setRecipeName(e.target.value)}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Porção (g)</span>
-                <input
-                  type="number"
-                  value={portionSize}
-                  onChange={(e) => setPortionSize(Number(e.target.value))}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-[2fr_1fr_1fr]">
-              <label className="block">
-                <span className="text-sm font-medium">Ingrediente</span>
-                <select
-                  value={selectedIngredient}
-                  onChange={(e) => setSelectedIngredient(e.target.value ? Number(e.target.value) : "")}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                >
-                  <option value="">Selecione um ingrediente</option>
-                  {ingredients.map((ingredient) => (
-                    <option key={ingredient.id} value={ingredient.id}>
-                      {ingredient.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Quantidade (g)</span>
-                <input
-                  type="number"
-                  value={ingredientQty}
-                  onChange={(e) => setIngredientQty(Number(e.target.value))}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
+          <label className="search">
+            <span>⌕</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busque arroz, leite, farinha..." />
+          </label>
+          <select className="category-select" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por categoria">
+            {categories.map((item) => <option key={item}>{item}</option>)}
+          </select>
+          <div className="ingredient-list">
+            {loading ? <p className="empty">Carregando a TACO…</p> : filtered.map((ingredient) => (
               <button
-                type="button"
-                onClick={addIngredient}
-                className="mt-6 rounded bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
+                key={ingredient.id}
+                className={`ingredient-row ${selectedId === ingredient.id ? "selected" : ""}`}
+                onClick={() => setSelectedId(ingredient.id)}
               >
-                Adicionar
+                <span><strong>{ingredient.name}</strong><small>{ingredient.category}</small></span>
+                <b>{format(ingredient.energy, 0)} <small>kcal</small></b>
               </button>
-            </div>
+            ))}
+            {!loading && !filtered.length && <p className="empty">Nenhum alimento encontrado.</p>}
+          </div>
+          <div className="add-bar">
+            <label>Quantidade <span><input type="number" min="0.1" step="0.1" value={grams} onChange={(event) => setGrams(number(event.target.value))} /> g</span></label>
+            <button className="primary-button" disabled={!selectedId || grams <= 0} onClick={addSelected}>Adicionar à receita</button>
+          </div>
+        </aside>
 
-            <div className="rounded border bg-slate-50 p-4">
-              <h2 className="font-semibold">Ingredientes atuais</h2>
-              {recipeIngredients.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-600">Nenhum ingrediente adicionado.</p>
-              ) : (
-                <ul className="mt-3 space-y-3">
-                  {recipeIngredients.map((item, index) => (
-                    <li key={`${item.id}-${index}`} className="flex items-center justify-between rounded border p-3">
-                      <span>{item.name} — {item.qty} g</span>
-                      <button
-                        type="button"
-                        onClick={() => removeIngredient(index)}
-                        className="rounded bg-red-600 px-3 py-1 text-white hover:bg-red-500"
-                      >
-                        Remover
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+        <section className={`recipe-panel print-area ${mobilePanel !== "recipe" ? "mobile-hidden" : ""}`}>
+          <div className="recipe-editor print-hide">
+            <div className="section-heading">
+              <div><span className="step">2</span><h2>Monte sua receita</h2></div>
+              {items.length > 0 && <button className="text-button danger" onClick={() => setItems([])}>Limpar</button>}
             </div>
-
-            <button
-              type="button"
-              onClick={handleSaveRecipe}
-              className="rounded bg-slate-900 px-5 py-3 text-white hover:bg-slate-700"
-            >
-              {editingRecipeId ? "Atualizar receita" : "Gerar e salvar receita"}
-            </button>
-            {editingRecipeId && (
-              <button
-                type="button"
-                onClick={clearRecipeForm}
-                className="rounded border border-slate-300 bg-white px-5 py-3 text-slate-900 hover:bg-slate-100"
-              >
-                Cancelar edição
-              </button>
-            )}
-          </section>
-
-          <section className="space-y-6 rounded-xl bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold">Adicionar ingrediente customizado</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-medium">Nome</span>
-                <input
-                  value={customIngredient.name}
-                  onChange={(e) => setCustomIngredient({ ...customIngredient, name: e.target.value })}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Energia (kcal)</span>
-                <input
-                  value={customIngredient.energia}
-                  onChange={(e) => setCustomIngredient({ ...customIngredient, energia: e.target.value })}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Carbo</span>
-                <input
-                  value={customIngredient.carbo}
-                  onChange={(e) => setCustomIngredient({ ...customIngredient, carbo: e.target.value })}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Proteína</span>
-                <input
-                  value={customIngredient.proteina}
-                  onChange={(e) => setCustomIngredient({ ...customIngredient, proteina: e.target.value })}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Gordura</span>
-                <input
-                  value={customIngredient.gordura}
-                  onChange={(e) => setCustomIngredient({ ...customIngredient, gordura: e.target.value })}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Fibra</span>
-                <input
-                  value={customIngredient.fibra}
-                  onChange={(e) => setCustomIngredient({ ...customIngredient, fibra: e.target.value })}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Sódio</span>
-                <input
-                  value={customIngredient.sodio}
-                  onChange={(e) => setCustomIngredient({ ...customIngredient, sodio: e.target.value })}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
+            <div className="recipe-fields">
+              <label>Nome da receita<input value={recipeName} onChange={(event) => setRecipeName(event.target.value)} /></label>
+              <label>Porção<input type="number" min="1" value={portion} onChange={(event) => setPortion(Math.max(1, number(event.target.value)))} /><span>g</span></label>
             </div>
-            <button
-              type="button"
-              onClick={addCustomIngredient}
-              className="rounded bg-slate-900 px-5 py-3 text-white hover:bg-slate-700"
-            >
-              Adicionar ingrediente
-            </button>
-          </section>
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-          <section className="rounded-xl bg-white p-6 shadow-sm print-area">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold">Rótulo nutricional</h2>
-                <p className="text-sm text-slate-600">Carregue um logo e ajuste o layout do rótulo.</p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className="text-sm font-medium">Logo</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoUpload}
-                    className="mt-1 w-full rounded border px-3 py-2"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium">Tamanho do logo</span>
-                  <input
-                    type="range"
-                    min={60}
-                    max={220}
-                    value={logoSize}
-                    onChange={(e) => setLogoSize(Number(e.target.value))}
-                    className="mt-1 w-full"
-                  />
-                </label>
-              </div>
-            </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-medium">Mover logo X</span>
-                <input
-                  type="range"
-                  min={-40}
-                  max={40}
-                  value={logoPosition.x}
-                  onChange={(e) => setLogoPosition((current) => ({ ...current, x: Number(e.target.value) }))}
-                  className="mt-1 w-full"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Mover logo Y</span>
-                <input
-                  type="range"
-                  min={-40}
-                  max={40}
-                  value={logoPosition.y}
-                  onChange={(e) => setLogoPosition((current) => ({ ...current, y: Number(e.target.value) }))}
-                  className="mt-1 w-full"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Mover tabela X</span>
-                <input
-                  type="range"
-                  min={-40}
-                  max={40}
-                  value={tablePosition.x}
-                  onChange={(e) => setTablePosition((current) => ({ ...current, x: Number(e.target.value) }))}
-                  className="mt-1 w-full"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Mover tabela Y</span>
-                <input
-                  type="range"
-                  min={-40}
-                  max={40}
-                  value={tablePosition.y}
-                  onChange={(e) => setTablePosition((current) => ({ ...current, y: Number(e.target.value) }))}
-                  className="mt-1 w-full"
-                />
-              </label>
-            </div>
-            <div className="mt-4 rounded border bg-slate-50 p-4">
-              <div className="text-sm font-semibold">Porção de {portionSize} g</div>
-              {labelVisible ? (
-                <div className="relative overflow-hidden rounded border bg-white p-4" style={{ minHeight: 320 }}>
-                  {logoUrl && (
-                    <img
-                      src={logoUrl}
-                      alt="Logo da marca"
-                      style={{
-                        position: "absolute",
-                        top: `${logoPosition.y}px`,
-                        left: `${logoPosition.x}px`,
-                        width: `${logoSize}px`,
-                        maxWidth: "100%",
-                      }}
-                    />
-                  )}
-                  <div className="relative" style={{ transform: `translate(${tablePosition.x}px, ${tablePosition.y}px)` }}>
-                    <table className="mt-4 w-full border-collapse text-sm">
-                      <thead>
-                        <tr>
-                          <th className="border px-2 py-1 text-left">Nutriente</th>
-                          <th className="border px-2 py-1 text-left">Qtd.</th>
-                          <th className="border px-2 py-1 text-left">%VD*</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lineItem('Valor energético', printTotals.energia, 'kcal', 2000)}
-                        {lineItem('Carboidratos', printTotals.carbo, 'g', 300)}
-                        {lineItem('Proteínas', printTotals.proteina, 'g', 75)}
-                        {lineItem('Gorduras totais', printTotals.gordura, 'g', 55)}
-                        {lineItem('Fibra alimentar', printTotals.fibra, 'g', 25)}
-                        {lineItem('Sódio', printTotals.sodio, 'mg', 2000)}
-                      </tbody>
-                    </table>
-                  </div>
+            <div className="recipe-items">
+              {!items.length ? (
+                <div className="empty-recipe"><b>Sua receita começa aqui</b><p>Selecione um alimento ao lado e informe a quantidade usada.</p></div>
+              ) : items.map((item) => (
+                <div className="recipe-item" key={item.id}>
+                  <span><strong>{item.name}</strong><small>{format(item.energy * item.grams / 100, 0)} kcal</small></span>
+                  <label><input type="number" min="0.1" value={item.grams} onChange={(event) => setItems((current) => current.map((currentItem) => currentItem.id === item.id ? { ...currentItem, grams: Math.max(0.1, number(event.target.value)) } : currentItem))} /> g</label>
+                  <button onClick={() => setItems((current) => current.filter((currentItem) => currentItem.id !== item.id))} aria-label={`Remover ${item.name}`}>×</button>
                 </div>
-              ) : (
-                <p className="mt-4 text-sm text-slate-600">Clique em "Gerar e salvar receita" para calcular o rótulo.</p>
-              )}
-              <p className="mt-3 text-xs text-slate-500">*Valores diários com base em 2.000 kcal</p>
+              ))}
             </div>
-          </section>
+            <div className="recipe-total"><span>Peso total da receita</span><strong>{format(totals.weight)} g</strong></div>
+            <button className="save-button" disabled={!items.length || !recipeName.trim()} onClick={saveRecipe}>Salvar receita</button>
+          </div>
 
-          <section className="rounded-xl bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold">Receitas salvas</h2>
-            <div className="mt-4 space-y-4">
-              {recipes.length === 0 ? (
-                <p className="text-sm text-slate-600">Nenhuma receita salva ainda.</p>
-              ) : (
-                recipes.map((recipe) => (
-                  <div key={recipe.id} className="rounded border p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <div className="font-semibold">{recipe.name}</div>
-                        <div className="text-sm text-slate-600">Porção: {recipe.portion_size} g</div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => editRecipe(recipe)}
-                          className="rounded bg-slate-900 px-3 py-1 text-white hover:bg-slate-700"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteRecipe(recipe.id)}
-                          className="rounded bg-red-600 px-3 py-1 text-white hover:bg-red-500"
-                        >
-                          Excluir
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-sm text-slate-700">
-                      Ingredientes: {recipe.ingredients.map((item) => item.name).join(", ")}
-                    </div>
-                  </div>
-                ))
-              )}
+          <article className="nutrition-card">
+            <div className="label-kicker">INFORMAÇÃO NUTRICIONAL</div>
+            <h2>{recipeName || "Sua receita"}</h2>
+            <p>Porções por embalagem: {totals.weight && portion ? Math.max(1, Math.floor(totals.weight / portion)) : "—"}</p>
+            <p>Porção de {format(portion, 0)} g</p>
+            <div className="label-rule thick" />
+            <div className="daily-heading">Quantidade por porção <span>%VD*</span></div>
+            {nutrientLabels.map(([key, label, unit], index) => (
+              <div className={`nutrient-row ${index === 0 ? "energy-row" : ""}`} key={key}>
+                <span><b>{label}</b> {format(perPortion[key], key === "sodium" ? 0 : 1)} {unit}</span>
+                <b>{key === "energy" ? `${Math.round(perPortion.energy / 20)}%` : "—"}</b>
+              </div>
+            ))}
+            <div className="label-rule thick" />
+            <small>*Percentual de valores diários fornecidos pela porção. Valores calculados a partir da composição centesimal da TACO.</small>
+          </article>
+        </section>
+      </section>
+
+      {savedRecipes.length > 0 && (
+        <section className="saved-section print-hide">
+          <div><p className="eyebrow">SEU CADERNO</p><h2>Receitas salvas</h2></div>
+          <div className="saved-grid">
+            {savedRecipes.map((recipe) => (
+              <article key={recipe.id}>
+                <span>{recipe.items.length} ingredientes</span>
+                <h3>{recipe.name}</h3>
+                <p>Porção de {recipe.portion} g • {new Date(recipe.createdAt).toLocaleDateString("pt-BR")}</p>
+                <div><button onClick={() => loadRecipe(recipe)}>Abrir receita</button><button onClick={() => deleteRecipe(recipe.id)} aria-label={`Excluir ${recipe.name}`}>Excluir</button></div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {showCustom && (
+        <div className="modal-backdrop print-hide" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowCustom(false)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="custom-title">
+            <button className="modal-close" onClick={() => setShowCustom(false)} aria-label="Fechar">×</button>
+            <p className="eyebrow">ALIMENTO PERSONALIZADO</p>
+            <h2 id="custom-title">Adicionar à tabela TACO</h2>
+            <p>Informe os nutrientes encontrados em 100 g do alimento.</p>
+            <div className="custom-grid">
+              <label className="wide">Nome do alimento<input autoFocus value={custom.name} onChange={(event) => setCustom({ ...custom, name: event.target.value })} /></label>
+              <label className="wide">Categoria<input value={custom.category} onChange={(event) => setCustom({ ...custom, category: event.target.value })} /></label>
+              {nutrientLabels.map(([key, label, unit]) => (
+                <label key={key}>{label}<span><input type="number" min="0" step="0.01" value={custom[key]} onChange={(event) => setCustom({ ...custom, [key]: event.target.value })} /> {unit}</span></label>
+              ))}
             </div>
+            <div className="modal-actions"><button className="ghost-button" onClick={() => setShowCustom(false)}>Cancelar</button><button className="primary-button" disabled={!custom.name.trim() || saving} onClick={saveCustomIngredient}>{saving ? "Salvando…" : "Adicionar ingrediente"}</button></div>
           </section>
         </div>
-      </div>
+      )}
     </main>
   );
 }
